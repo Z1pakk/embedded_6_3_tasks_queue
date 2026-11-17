@@ -27,8 +27,11 @@ typedef struct {
 static const char *LOGS_TAG = "6_3";
 
 #define TASK_STACK_SIZE UINT32_C(3072)
-#define PRIORITY_PRODUCER_TASK UINT32_C(4)
-#define PRIORITY_CONSUMER_TASK UINT32_C(5)
+
+#define PRIORITY_PRODUCER_TASK ((UBaseType_t)4)
+#define PRIORITY_CONSUMER_TASK ((UBaseType_t)5)
+#define PRIORITY_MAIN ((UBaseType_t)(20))
+
 #define READ_PRODUCER_DELAY pdMS_TO_TICKS(500)
 #define Q_SIZE UINT32_C(5)
 #define Q_ITEM_SIZE sizeof(SensorMessage_t)
@@ -46,6 +49,14 @@ ASSERT_LOWER_PRIORITY(PRIORITY_PRODUCER_TASK, PRIORITY_CONSUMER_TASK);
 static_assert(sizeof(SensorMessage_t) <= 16, "SensorMessage_t is too large for efficient by-value queue copying");
 static_assert(Q_SIZE > 0, "Queue capacity must be greater than zero");
 static_assert(TASK_STACK_SIZE >= configMINIMAL_STACK_SIZE, "Task stack size must meet or exceed FreeRTOS minimum requirements");
+
+// This func stops the program if xTaskCreate returns error
+static inline void check_task_created(BaseType_t result, const char *name) {
+    if (result != pdPASS) {
+        ESP_LOGE(LOGS_TAG, "Task was not created (not enough heap?)", name);
+        abort();
+    }
+}
 
 static QueueHandle_t xSensorsQueue;
 
@@ -138,6 +149,9 @@ static void consume_task(void *pvParameters) {
 void app_main() {
     ESP_LOGI(LOGS_TAG, "Start the application.");
 
+    // set the main task priority to reduce switching during creating tasks
+    const UBaseType_t main_prio = uxTaskPriorityGet(NULL);
+    vTaskPrioritySet(NULL, PRIORITY_MAIN);
 
     xSensorsQueue = xQueueCreate(Q_SIZE, Q_ITEM_SIZE);
     if (xSensorsQueue == NULL) {
@@ -147,14 +161,12 @@ void app_main() {
 
     BaseType_t isOk = pdPASS;
 
-    isOk &= xTaskCreate(producer_sensor_1_task, "producer_sensor_1_task", TASK_STACK_SIZE, NULL, PRIORITY_PRODUCER_TASK, NULL);
-    isOk &= xTaskCreate(producer_sensor_2_task, "producer_sensor_2_task", TASK_STACK_SIZE, NULL, PRIORITY_PRODUCER_TASK, NULL);
-    isOk &= xTaskCreate(consume_task, "consume_task", TASK_STACK_SIZE, NULL, PRIORITY_CONSUMER_TASK, NULL);
-
-    if (isOk != pdPASS) {
-        ESP_LOGE(LOGS_TAG, "Tasks creation failed (out of memory?)");
-        abort();
-    }
+    check_task_created(xTaskCreate(producer_sensor_1_task, "producer_sensor_1_task", TASK_STACK_SIZE, NULL, PRIORITY_PRODUCER_TASK, NULL), "Producer 1");
+    check_task_created(xTaskCreate(producer_sensor_2_task, "producer_sensor_2_task", TASK_STACK_SIZE, NULL, PRIORITY_PRODUCER_TASK, NULL), "Producer 2");
+    check_task_created(xTaskCreate(consume_task, "consume_task", TASK_STACK_SIZE, NULL, PRIORITY_CONSUMER_TASK, NULL), "Consumer");
 
     ESP_LOGI(LOGS_TAG, "Finished initialization successfully");
+
+    // set the main task priority back to the original value
+    vTaskPrioritySet(NULL, main_prio);
 }
