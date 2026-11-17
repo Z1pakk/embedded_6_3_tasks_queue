@@ -50,10 +50,20 @@ static_assert(sizeof(SensorMessage_t) <= 16, "SensorMessage_t is too large for e
 static_assert(Q_SIZE > 0, "Queue capacity must be greater than zero");
 static_assert(TASK_STACK_SIZE >= configMINIMAL_STACK_SIZE, "Task stack size must meet or exceed FreeRTOS minimum requirements");
 
+// This func stops the program if xQueueCreate returns error
+static QueueHandle_t check_queue_created(QueueHandle_t queue, const char *name) {
+    if (queue == NULL) {
+        ESP_LOGE(LOGS_TAG, "Queue '%s' was not created (not enough heap?)", name);
+        abort();
+    }
+
+    return queue;
+}
+
 // This func stops the program if xTaskCreate returns error
-static inline void check_task_created(BaseType_t result, const char *name) {
+static void check_task_created(BaseType_t result, const char *name) {
     if (result != pdPASS) {
-        ESP_LOGE(LOGS_TAG, "Task was not created (not enough heap?)", name);
+        ESP_LOGE(LOGS_TAG, "Task '%s' was not created (not enough heap?)", name);
         abort();
     }
 }
@@ -153,11 +163,7 @@ void app_main() {
     const UBaseType_t main_prio = uxTaskPriorityGet(NULL);
     vTaskPrioritySet(NULL, PRIORITY_MAIN);
 
-    xSensorsQueue = xQueueCreate(Q_SIZE, Q_ITEM_SIZE);
-    if (xSensorsQueue == NULL) {
-        ESP_LOGE(LOGS_TAG, "Queue creation failed (out of memory?)");
-        abort();
-    }
+    xSensorsQueue = check_queue_created(xQueueCreate(Q_SIZE, Q_ITEM_SIZE), "Sensor_queue");
 
     BaseType_t isOk = pdPASS;
 
